@@ -1,0 +1,154 @@
+---
+title: "Preliminary Exploratory Data Analysis"
+author: "Shrey Sharma"
+date: "11/29/2024"
+output: html_document
+---
+
+## Guiding Question:
+
+Do professional soccer players from countries with higher economic and demographic indicators (e.g., GDP per capita, literacy rate, population size) tend to have higher overall skill ratings in the FIFA 21 dataset?
+
+```{r}
+
+# clean up workspace environment
+rm(list = ls())
+
+# all packages used for the assignment
+library(dplyr)
+library(ggplot2)
+library(readr)
+```
+
+## Acquainted with Data sources:
+
+# Load FIFA 21 Player Data
+
+```{r}
+fifa <- read_csv("players_21.csv") # Assuming the CSV is downloaded from Kaggle and stored locally
+```
+
+### Where did you find them?
+
+I found the datasets on Kaggle
+
+### Who collected/maintains them?
+
+This is public data that has been extracted and compiled bg Kaggle user "stefanoleone002" (community contributor), originally sourced from the official FIFA video game database.
+
+### When & why were they originally collected?
+
+The dataset was collected around the release of FIFA 21(2020) to enable analysis of player attributes, stats, and other career-related details. It is used by researchers, analysts, and fans to understand player performance metrics and market values
+
+### What does a case represent in each data source, and how many total cases are available?
+
+Each case (row) represents a single professional soccer player included in the FIFA 21 video game database.There are over 18,000 players in the dataset.
+
+### What are some of the variables that you plan to use?
+
+Some of the variables that we plan to use are: Player Name, Nationality, Overall Rating, Potential, and Player Attributes
+
+# Load Country Data
+
+```{r}
+countries <- read_csv("countries_of_the_world.csv")
+```
+
+### Where did you find them?
+
+I found the dataset from Kaggle, under the name Countries of the World.
+
+### Who collected/maintains them?
+
+It has been compiled from various international data sources (such as the US Census Bureau & CIA World Factbook) by kaggle user "fernandol".
+
+### When & why were they originally collected?
+
+The data was collected prior to 2017, the purpose of collection was to provide a broad range of demographic and economic indicators for global countries.
+
+### What does a case represent in each data source, and how many total cases are available?
+
+Each case is a single country with various demographic and economic attributes.
+
+### What are some of the variables that you plan to use?
+
+A couple of the variables that I plan to use are : Country Name, GDP per capita, Literacy Rate, Population, Birthrate, Deathrate, and potentially other indicators like Agriculture/Industry/Service (%) of GDP share
+
+# Glimpse data structure
+
+```{r}
+head(fifa)
+```
+
+```{r}
+head(countries)
+```
+
+# Check missing data in key fields
+
+```{r}
+summary(fifa$nationality)
+summary(countries$Country)
+```
+
+# Basic cleaning steps: For instance, ensure consistent casing and trim spaces in country names
+
+```{r}
+countries <- countries %>%
+  mutate(Country = trimws(Country))
+```
+
+# Attempt a join by Nationality and Country
+
+# Might need a manual mapping if names differ slightly
+
+```{r}
+combined_data <- fifa %>%
+  left_join(countries, by = c("nationality" = "Country"))
+```
+
+# Check how many rows matched
+
+```{r}
+sum(!is.na(combined_data$`GDP ($ per capita)`))
+```
+
+```{r}
+ggplot(data = fifa, aes(x = overall)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "white") +
+  ggtitle("Distribution of FIFA 21 Player Overall Ratings")
+```
+
+```{r}
+# Aggregate data by nationality
+country_summary <- combined_data %>%
+  group_by(nationality) %>%
+  summarize(
+    mean_overall = mean(overall, na.rm = TRUE),
+    gdp_capita = mean(`GDP ($ per capita)`, na.rm = TRUE)
+  ) %>%
+  # Remove any countries where we don't have GDP data
+  filter(!is.na(gdp_capita))
+
+# Plot the aggregated data
+ggplot(country_summary, aes(x = gdp_capita, y = mean_overall)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    title = "Average Player Overall Rating vs. GDP per Capita by Country",
+    x = "GDP (per capita)",
+    y = "Mean Overall Rating of Players"
+  )
+```
+
+```{r}
+combined_data %>%
+  group_by(nationality) %>%
+  summarize(mean_overall = mean(overall, na.rm = TRUE),
+            gdp_capita = mean(`GDP ($ per capita)`, na.rm = TRUE)) %>%
+  arrange(desc(mean_overall))
+```
+
+### Preliminary Observations and Intuition
+
+We can observe how player overall rating varies across nationalities. For instance, European soccer powerhouses might have higher overall ratings and also come from countries with higher GDP per capita. We might notice whether certain regions (e.g., Western Europe) show a positive correlation between economic indicators and player ratings, while others do not. This early insight will guide further modeling and hypothesis testing, as we explore if controlling for confounding factors (e.g., player age, position, etc.) still leaves a strong relationship between country-level indicators and player quality.

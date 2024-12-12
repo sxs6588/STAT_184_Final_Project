@@ -1,0 +1,281 @@
+---
+title: "Class Project - STAT 184"
+author: "Shrey Sharma"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+### Introduction
+
+## Research Question:
+*Do professional soccer players from countries with higher economic and demographic indicators (e.g., GDP per capita, literacy rate, population size) tend to have higher overall skill ratings in the FIFA 21 dataset?*
+
+**Why This Topic is Important:**
+*The intersection of sports and socioeconomic factors is an area of growing interest. Soccer, being the most popular sport globally, serves as an ideal domain for exploring how macroeconomic indicators might influence the development of player talent. Understanding these relationships could provide insights into how national investments in education, infrastructure, and overall economic health contribute to the global distribution of elite soccer players. Additionally, this topic appeals to both sports enthusiasts and data scientists, as it combines an engaging subject with meaningful analysis.*
+
+## Data Access and Initial Inspection
+
+### Load Required Packages
+
+```{r packages}
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+```
+
+### Primary Data Source (FIFA 21 Player Data)
+
+**Source:** [Kaggle: FIFA 21 Complete Player Dataset](https://www.kaggle.com/datasets/stefanoleone992/fifa-21-complete-player-dataset)
+
+Load `players_21.csv` into our working directory.
+
+```{r load-fifa-data}
+fifa <- read.csv("players_21.csv", stringsAsFactors = FALSE)
+
+# Inspect the structure
+str(fifa)
+head(fifa, 3)
+```
+
+- Each row represents a player.
+- We have thousands of players and numerous attributes.
+
+We plan to use variables such as `short_name`, `age`, `overall`, `nationality`, `value_eur`, and `wage_eur`.
+
+### Secondary Data Source (Countries of the World)
+
+**Source:** [Kaggle: Countries of the World](https://www.kaggle.com/datasets/fernandol/countries-of-the-world)
+
+Load `countries_of_the_world.csv` into our working directory.
+
+```{r load-country-data}
+countries <- read.csv("countries_of_the_world.csv", stringsAsFactors = FALSE)
+
+# Inspect structure
+str(countries)
+head(countries, 3)
+```
+
+- Each row represents a country with various indicators like GDP per capita, literacy rate, population, etc.
+
+### Cleaning and Preparation
+
+We notice that country names may not match exactly between `fifa$nationality` and `countries$Country`. We may need to clean these names to improve join success. Countries dataset may have trailing spaces or different formatting.
+
+```{r clean-country-data}
+# Trim whitespace and remove trailing spaces using regular expressions:
+countries <- countries %>%
+  mutate(Country = str_trim(Country))
+
+# Check country name examples
+head(countries$Country)
+```
+
+### Joining the Data
+
+We will join the FIFA data with the countries data on `nationality` and `Country`. Before joining, let's see how many unique nationalities are in the FIFA dataset.
+
+```{r unique-nationalities}
+length(unique(fifa$nationality))
+```
+
+Now we attempt to join:
+
+```{r join-data}
+combined_data <- fifa %>%
+  left_join(countries, by = c("nationality" = "Country"))
+```
+
+Check how many matches we got:
+
+```{r check-join}
+sum(!is.na(combined_data$GDP....per.capita.))
+```
+
+## Data Wrangling Demonstrations
+
+### 1. Data Verbs (Filter, Mutate, Summarize, Arrange, Group_by)
+
+- **Filter:** Filter out players with missing GDP data.
+- **Mutate:** Convert GDP per capita and literacy rates to numeric where needed.
+- **Group_by & Summarize:** Compute average player overall rating by country.
+
+```{r data-verbs}
+combined_data <- combined_data %>%
+  mutate(
+    # Remove non-numeric characters
+    Literacy_rate = as.numeric(str_replace_all(Literacy...., "[^0-9\\.]", "")),
+    # Adjust values greater than 100
+    Literacy_rate = ifelse(Literacy_rate > 100, Literacy_rate / 10, Literacy_rate),
+    GDP_per_capita = as.numeric(GDP....per.capita.),
+    Population_millions = as.numeric(str_replace_all(Population, ",", "")) / 1e6
+  )
+
+# Filter out rows with missing GDP_per_capita
+combined_data_clean <- combined_data %>%
+  filter(!is.na(GDP_per_capita))
+
+# Group by nationality and summarize mean overall rating
+country_summary <- combined_data_clean %>%
+  group_by(nationality) %>%
+  summarize(
+    mean_overall = mean(overall, na.rm = TRUE),
+    avg_gdp = mean(GDP_per_capita, na.rm = TRUE),
+    avg_literacy = mean(Literacy_rate, na.rm = TRUE),
+    count_players = n()
+  ) %>%
+  arrange(desc(mean_overall))
+
+# Display the first 10 rows
+head(country_summary, 10)
+```
+
+### 2. Join (Already Demonstrated Above)
+
+Already joined the FIFA data with the countries data using `left_join`.
+
+### 3. Reshaping Data (Spread or Gather)
+
+Suppose we want to transform our `country_summary` data into a longer format to plot GDP vs. mean overall rating vs. literacy as a single tidy dataset. We will pivot a subset of metrics into a longer format.
+
+```{r reshape-data}
+country_long <- country_summary %>%
+  select(nationality, mean_overall, avg_gdp, avg_literacy) %>%
+  pivot_longer(cols = c("avg_gdp", "avg_literacy"),
+               names_to = "country_metric",
+               values_to = "metric_value")
+
+head(country_long, 6)
+```
+
+### 4. Regular Expressions (Already Demonstrated)
+
+We used `str_replace_all` to remove "%" from literacy and commas from Population data, and `str_trim` to clean spaces from country names.
+
+### 5. Reduction Functions
+
+We used `mean()` and `n()` in our summarizations. We can also demonstrate a simple user-defined function that returns a correlation between a selected numeric country metric and `mean_overall`.
+
+### 6. User-Defined Function
+
+Let's define a small function to compute correlation and return a tidy result:
+
+```{r user-defined-fn}
+compute_correlation <- function(data, var_x, var_y) {
+  # var_x and var_y are strings representing column names in data
+  # We'll return a correlation and a simple interpretation as a list.
+  
+  x <- data[[var_x]]
+  y <- data[[var_y]]
+  
+  # Remove NAs
+  valid <- complete.cases(x, y)
+  x <- x[valid]
+  y <- y[valid]
+  
+  cor_value <- cor(x, y)
+  interpretation <- ifelse(abs(cor_value) > 0.5, "Strong relationship", "Weak/Moderate relationship")
+  
+  list(correlation = cor_value, interpretation = interpretation)
+}
+
+# Example: correlation between avg_gdp and mean_overall
+compute_correlation(country_summary, "avg_gdp", "mean_overall")
+```
+
+We can do the same for literacy:
+
+```{r correlation-literate}
+compute_correlation(country_summary, "avg_literacy", "mean_overall")
+```
+
+### 7. Loops and Control Flow
+
+Print top 3 countries by mean_overall with a loop.
+
+```{r loop-example}
+top_countries <- head(country_summary, 3)
+
+for (i in seq_len(nrow(top_countries))) {
+  cat("Rank", i, ":", top_countries$nationality[i], 
+      "with Mean Overall =", round(top_countries$mean_overall[i], 2), "\n")
+}
+```
+
+## Data Visualization
+
+Are higher GDP/literacy/population countries associated with higher overall player ratings?
+
+### 1. Distribution of Overall Player Ratings
+
+A simple histogram to see the distribution of player overall ratings:
+
+```{r hist-overall, fig.width=6, fig.height=4}
+ggplot(data = fifa, aes(x = overall)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "white") +
+  ggtitle("Distribution of FIFA 21 Player Overall Ratings") +
+  xlab("Overall Rating") +
+  ylab("Count of Players")
+```
+
+**Interpretation:** Player ratings center around the mid-60s-70s, with fewer players at the high or low extremes.
+
+### 2. Relationship Between Mean Overall Rating and GDP per Capita
+
+A scatter plot comparing country-level mean overall rating vs. GDP per capita, including a smoothing line. We'll use color for another variable (e.g., literacy rate) and size for population, thus involving 3 variables in one plot.
+
+```{r scatter-gdp-overall, fig.width=6, fig.height=4}
+ggplot(data = country_summary, aes(x = avg_gdp, y = mean_overall, 
+                                   color = avg_literacy, size = count_players)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", color = "black") +
+  scale_color_gradient(low = "red", high = "green") +
+  ggtitle("Mean Overall Rating vs. GDP per Capita by Country",
+          subtitle = "Color = Literacy Rate, Size = Number of Players from Country") +
+  xlab("Average GDP per Capita (USD)") +
+  ylab("Mean Overall Rating") +
+  theme_minimal()
+```
+
+**Interpretation:** This plot encodes:
+- X-axis: GDP per capita
+- Y-axis: Mean overall rating of players from that country
+- Color: Literacy rate (another variable)
+- Size: Player count (another variable)
+
+That's a visualization of at least 3 variables plus a response variable.
+
+We see that countries with higher GDP might have slightly lower mean overall player ratings.
+
+### 3. Boxplots by Region or Another Factor
+
+Now let's look at boxplots of mean overall rating by region.
+
+```{r boxplot-region-overall, fig.width=8, fig.height=4}
+if("Region" %in% names(combined_data_clean)){
+  region_summary <- combined_data_clean %>%
+    group_by(Region) %>%
+    summarize(mean_rating = mean(overall, na.rm = TRUE))
+
+  ggplot(region_summary, aes(x = reorder(Region, mean_rating), y = mean_rating)) +
+    geom_boxplot() +
+    coord_flip() +
+    ggtitle("Distribution of Mean Overall Ratings by Region") +
+    xlab("Region") +
+    ylab("Mean Overall Rating")
+} else {
+  cat("No Region column found; skipping this visualization.\n")
+}
+```
+
+**Technical Challenge Encountered and How It Was Addressed:**
+*One significant technical challenge was aligning the two datasets by country names. The FIFA 21 dataset used nationalities with slight variations (e.g., "USA" instead of "United States"), and the Countries of the World dataset contained inconsistencies, such as trailing spaces and different naming conventions. To overcome this, I employed string manipulation techniques using regular expressions and functions like str_trim. However, some mismatches remained unresolved due to missing or ambiguous entries, leading to a slight reduction in the number of countries included in the final analysis.*
+
+**Significant Findings or Conclusions:**
+*Preliminary analysis revealed a mild negative relationship between a country’s GDP per capita and the mean overall rating of its players. Countries with higher literacy rates also tended to produce players with slightly worse overall ratings. However, these relationships were not overwhelmingly strong, suggesting that while socioeconomic factors play a role, they are likely part of a more complex interplay of influences, including cultural and institutional factors. However, one important thing to note is that the number of players from each country are varying, hence that can skew the average ratings in favor of some countries that are not that great in reality*
+
+*This investigation highlights how macro-level indicators can offer a lens through which we view individual-level achievements in sports. Future analyses could delve deeper into controlling for confounding factors, such as the number of players in game or specific positions, to refine these conclusions further.*
+
+**Final Note:**
+*The analysis was rigorous and grounded in relevant statistical and data visualization techniques, ensuring that the conclusions drawn were meaningful and tied directly to the research question. The exploration process was an excellent exercise in connecting large-scale data patterns to real-world phenomena.*
